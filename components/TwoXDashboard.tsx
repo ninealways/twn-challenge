@@ -26,7 +26,7 @@ import TwoXYouTube from '@/components/TwoXYouTube';
 import TwoXPositionCalculator from '@/components/TwoXPositionCalculator';
 import { downloadText } from '@/lib/storage';
 import { formatCurrency } from '@/lib/stats';
-import { DEFAULT_TWO_X_SETUP, TWO_X_CACHE_KEY, TWO_X_SHEET_URL } from '@/lib/twoXConstants';
+import { DEFAULT_TWO_X_SETUP, TWO_X_CACHE_KEY } from '@/lib/twoXConstants';
 import { buildTwoXChartRows, buildTwoXStats, tradeNumberPerformance } from '@/lib/twoXStats';
 import type { TwoXDailyEntry, TwoXPayload, TwoXTrade } from '@/types/twoXChallenge';
 
@@ -107,13 +107,8 @@ export default function TwoXDashboard() {
     fetchedAt: '',
     warnings: []
   });
-  const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
-  const [message, setMessage] = useState('Loading Google Sheet data...');
-
   async function refresh() {
     try {
-      setStatus('loading');
-      setMessage('Refreshing all 2X in 120 tabs...');
       const response = await fetch('/api/2x120');
       const next = (await response.json()) as TwoXPayload & { message?: string };
       if (!response.ok || !next.daily || !next.trades || !next.setup) {
@@ -121,12 +116,7 @@ export default function TwoXDashboard() {
       }
       setPayload(next);
       window.localStorage.setItem(TWO_X_CACHE_KEY, JSON.stringify(next));
-      setStatus('success');
-      setMessage(`Loaded ${next.daily.length} daily row${next.daily.length === 1 ? '' : 's'} and ${next.trades.length} trade${next.trades.length === 1 ? '' : 's'}.`);
-    } catch (error) {
-      setStatus('error');
-      setMessage(`${error instanceof Error ? error.message : 'Could not load the sheet.'} Showing cached data if available.`);
-    }
+    } catch { /* Keep displaying the last successfully cached data. */ }
   }
 
   useEffect(() => {
@@ -429,16 +419,6 @@ export default function TwoXDashboard() {
 
         {activeTab === 'setup' ? (
           <div className="grid gap-5">
-            <SectionCard
-              title="Google Sheet source"
-              subtitle={payload.fetchedAt ? `Last synced: ${new Date(payload.fetchedAt).toLocaleString('en-IN')}` : 'Waiting for the first successful sync.'}
-              actions={<><button className="btn-primary" type="button" onClick={() => void refresh()} disabled={status === 'loading'}>{status === 'loading' ? 'Refreshing...' : 'Refresh all tabs'}</button><a className="btn-muted" href={TWO_X_SHEET_URL} target="_blank" rel="noreferrer">Open Google Sheet</a></>}
-            >
-              <div className="grid gap-3">
-                <p className={`status-message ${status === 'success' ? 'border-profit/30 bg-profit/10 text-profit' : status === 'error' ? 'border-loss/30 bg-loss/10 text-loss' : 'border-grid bg-slate-900 text-slate-300'}`}>{message}</p>
-                {payload.warnings.map((warning) => <p key={warning} className="status-message border-warning/30 bg-warning/10 text-warning">{warning}</p>)}
-              </div>
-            </SectionCard>
             <SectionCard title="Challenge rules" subtitle="Values loaded from 2X120 Setup, with defaults for blank fields.">
               <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {[
