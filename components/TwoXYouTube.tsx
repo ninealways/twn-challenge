@@ -5,8 +5,7 @@ import SectionCard from '@/components/SectionCard';
 import { formatCurrency } from '@/lib/stats';
 import type { TwoXPayload } from '@/types/twoXChallenge';
 
-type Draft = { title: string; description: string; headline: string; time: string };
-const localDate = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+type Draft = { title: string; description: string; showLive: boolean };
 
 export default function TwoXYouTube({ payload }: { payload: TwoXPayload }) {
   const [selection, setSelection] = useState('upcoming');
@@ -28,18 +27,15 @@ export default function TwoXYouTube({ payload }: { payload: TwoXPayload }) {
 
 function YouTubeDraft({ payload, entry, nextDay }: { payload: TwoXPayload; entry?: TwoXPayload['daily'][number]; nextDay: number }) {
   const [day, setDay] = useState(entry?.day || nextDay);
-  const [date, setDate] = useState(entry?.date || localDate());
-  const [draft, setDraft] = useState<Draft>({ title: '', description: '', headline: 'NIFTY LIVE', time: '' });
+  const [draft, setDraft] = useState<Draft>({ title: '', description: '', showLive: false });
   const [ready, setReady] = useState('');
   const [message, setMessage] = useState('');
   const [thumbnailReady, setThumbnailReady] = useState(false);
   const canvas = useRef<HTMLCanvasElement>(null);
   const mode = entry ? 'recap' : 'live';
-  const previousStorageKey = `twn-youtube-${mode}-${day}-${date}`;
-  // Keep earlier live drafts intact while adopting the new default template.
-  const storageKey = entry ? previousStorageKey : `${previousStorageKey}-v2`;
+  const storageKey = `twn-youtube-${mode}-${day}-v3`;
 
-  function generate(time: string): Draft {
+  function generate(): Draft {
     if (!entry) {
       const { startingCapital, targetCapital, tradingDays, challengeName, dailyLossLimitPct, maximumConsecutiveLosses } = payload.setup;
       const titleCapital = (capital: number) => capital >= 100000
@@ -47,11 +43,9 @@ function YouTubeDraft({ payload, entry, nextDay }: { payload: TwoXPayload; entry
         : formatCurrency(capital);
       return {
         title: `Can ${titleCapital(startingCapital)} Become ${titleCapital(targetCapital)}? 📈 | DAY ${day} LIVE | ${challengeName} | NIFTY Options`.slice(0, 100),
-        headline: 'NIFTY LIVE',
-        time,
+        showLive: false,
         description: [
           day === 1 ? `DAY 1 of ${challengeName} begins today. 📈` : `DAY ${day} of ${challengeName}: the journey continues. 📈`,
-          `${date}${time ? ` | ${time} IST` : ''}`,
           '',
           `Starting Capital: ${formatCurrency(startingCapital)}`,
           `Goal: ${formatCurrency(targetCapital)}`,
@@ -88,11 +82,10 @@ function YouTubeDraft({ payload, entry, nextDay }: { payload: TwoXPayload; entry
     const result = entry ? ` | P&L ${formatCurrency(entry.pnl)}` : '';
     return {
       title: `${label} | Day ${day} | ${payload.setup.challengeName}${result}`.slice(0, 100),
-      headline: entry ? `P&L ${formatCurrency(entry.pnl)}` : 'NIFTY LIVE',
-      time,
+      showLive: false,
       description: [
         `Day ${day} of ${payload.setup.challengeName} with TradeWithNine.`,
-        `${date}${time ? ` | ${time} IST` : ''}`,
+        entry?.date || '',
         '',
         `Challenge goal: grow ${formatCurrency(payload.setup.startingCapital)} to ${formatCurrency(payload.setup.targetCapital)} over ${payload.setup.tradingDays} trading days. This is a goal, not a promised return.`,
         '',
@@ -112,18 +105,15 @@ function YouTubeDraft({ payload, entry, nextDay }: { payload: TwoXPayload; entry
   useEffect(() => {
     setReady('');
     let restored: Draft | undefined;
-    let previousTime = '';
     try {
       const saved = JSON.parse(localStorage.getItem(storageKey) || 'null');
-      if (saved && ['title', 'description', 'headline', 'time'].every((key) => typeof saved[key] === 'string')) restored = saved;
-      if (!restored && !entry) {
-        const previous = JSON.parse(localStorage.getItem(previousStorageKey) || 'null');
-        if (typeof previous?.time === 'string') previousTime = previous.time;
+      if (saved && ['title', 'description'].every((key) => typeof saved[key] === 'string')) {
+        restored = { title: saved.title, description: saved.description, showLive: saved.showLive === true };
       }
     } catch { /* Use generated copy when no usable draft is stored. */ }
-    setDraft(restored || generate(previousTime));
+    setDraft(restored || generate());
     setReady(storageKey);
-    // Each day/date owns an independent editable draft.
+    // Each day owns an independent editable draft.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storageKey]);
 
@@ -146,28 +136,42 @@ function YouTubeDraft({ payload, entry, nextDay }: { payload: TwoXPayload; entry
       surface.height = original.naturalHeight;
       ctx.drawImage(original, 0, 0);
       if (day !== 1) {
-        // Patch only the old lettering; preserve every original pixel elsewhere.
-        const x = 1168, y = 164, width = 370, height = 146;
+        // Keep the original DAY lettering and replace only its green number.
+        const x = 1452, y = 164, width = 108, height = 146;
         ctx.drawImage(clean,
           x * clean.naturalWidth / surface.width, y * clean.naturalHeight / surface.height,
           width * clean.naturalWidth / surface.width, height * clean.naturalHeight / surface.height,
           x, y, width, height);
         let size = 174;
-        const label = `DAY ${day}`;
-        ctx.font = `900 ${size}px Arial`;
-        while (ctx.measureText(label).width > 452 && size > 40) {
+        const label = String(day);
+        ctx.font = `900 ${size}px "Arial Black", Impact, sans-serif`;
+        while (ctx.measureText(label).width > 198 && size > 40) {
           size -= 1;
-          ctx.font = `900 ${size}px Arial`;
+          ctx.font = `900 ${size}px "Arial Black", Impact, sans-serif`;
         }
         const baseline = 297;
-        const white = ctx.createLinearGradient(0, baseline - size, 0, baseline);
-        white.addColorStop(0, '#ffffff'); white.addColorStop(1, '#d4d4d4');
-        ctx.fillStyle = white;
-        ctx.fillText('DAY ', 1178, baseline);
         const green = ctx.createLinearGradient(0, baseline - size * 0.75, 0, baseline);
         green.addColorStop(0, '#bcffd5'); green.addColorStop(1, '#00ed52');
         ctx.fillStyle = green;
-        ctx.fillText(String(day), 1178 + ctx.measureText('DAY ').width, baseline);
+        ctx.shadowColor = 'rgba(0, 255, 82, 0.28)';
+        ctx.shadowBlur = 10;
+        ctx.fillText(label, 1462, baseline);
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+      }
+      if (draft.showLive) {
+        ctx.fillStyle = '#ff334f';
+        ctx.beginPath();
+        ctx.roundRect(1178, 72, 190, 70, 12);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(1217, 107, 10, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.font = '900 42px "Arial Black", Impact, sans-serif';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('LIVE', 1243, 109);
+        ctx.textBaseline = 'alphabetic';
       }
       setThumbnailReady(true);
     };
@@ -181,7 +185,7 @@ function YouTubeDraft({ payload, entry, nextDay }: { payload: TwoXPayload; entry
     clean.onerror = fail;
     original.src = '/reel-assets/youtube-day-template.png';
     return () => { cancelled = true; };
-  }, [day]);
+  }, [day, draft.showLive]);
 
   async function copy(value: string, label: string) {
     try { await navigator.clipboard.writeText(value); setMessage(`${label} copied.`); }
@@ -202,17 +206,15 @@ function YouTubeDraft({ payload, entry, nextDay }: { payload: TwoXPayload; entry
 
   return (
     <div className="grid min-w-0 gap-5">
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid max-w-2xl gap-4 sm:grid-cols-2">
         <label className="grid gap-2 text-sm font-bold">Trading day<input className="field" type="number" min="1" max={payload.setup.tradingDays} step="1" value={day} disabled={!!entry} onChange={(event) => setDay(Math.max(1, Math.min(payload.setup.tradingDays, Math.floor(Number(event.target.value)) || 1)))} /></label>
-        <label className="grid gap-2 text-sm font-bold">Stream date<input className="field" type="date" value={date} disabled={!!entry} onChange={(event) => { if (event.target.value) setDate(event.target.value); }} /></label>
-        <label className="grid gap-2 text-sm font-bold">Session time (IST)<input className="field" placeholder="e.g. 9:30 AM" maxLength={30} value={draft.time} onChange={(event) => {
-          const time = event.target.value;
-          const previous = `${date}${draft.time ? ` | ${draft.time} IST` : ''}`;
-          setDraft({ ...draft, time, description: draft.description.split('\n').map((line) => line === previous ? `${date}${time ? ` | ${time} IST` : ''}` : line).join('\n') });
-        }} /></label>
+        <label className="flex min-h-[72px] items-center gap-3 rounded-md border border-grid bg-panelSoft px-4 py-3 text-sm font-bold">
+          <input className="h-5 w-5 accent-profit" type="checkbox" checked={draft.showLive} onChange={(event) => setDraft({ ...draft, showLive: event.target.checked })} />
+          Add LIVE badge to thumbnail
+        </label>
       </div>
       <div className="grid min-w-0 gap-5 lg:grid-cols-2">
-        <SectionCard title="YouTube copy" actions={<button className="btn-small" onClick={() => setDraft(generate(draft.time))}>Regenerate copy</button>}>
+        <SectionCard title="YouTube copy" actions={<button className="btn-small" onClick={() => setDraft({ ...generate(), showLive: draft.showLive })}>Regenerate copy</button>}>
           <label className="grid gap-2 text-sm font-bold">Title<textarea className="field min-h-24 resize-y" maxLength={100} value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></label>
           <div className="my-3 flex items-center justify-between"><span className="text-xs text-muted">{draft.title.length}/100</span><button className="btn-small" disabled={!draft.title} onClick={() => void copy(draft.title, 'Title')}>Copy title</button></div>
           <label className="grid gap-2 text-sm font-bold">Description<textarea className="field min-h-80 resize-y text-sm" maxLength={5000} value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} /></label>
