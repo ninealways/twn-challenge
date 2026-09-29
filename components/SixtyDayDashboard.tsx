@@ -28,66 +28,29 @@ import ReelMaker from '@/components/ReelMaker';
 import RuleBadge from '@/components/RuleBadge';
 import SectionCard from '@/components/SectionCard';
 import ShareCard from '@/components/ShareCard';
-import { BRAND, CHALLENGE_DAYS, DEFAULT_INSTRUMENT, STARTING_CAPITAL } from '@/lib/constants';
+import { BRAND, CHALLENGE_DAYS, STARTING_CAPITAL } from '@/lib/constants';
 import { buildMilestones, buildStats, chartRows, formatCurrency, getRuleBreaks, resultDistribution, sortEntries } from '@/lib/stats';
 import {
-  downloadText,
-  entriesToCsv,
   loadEntries,
-  loadLastSync,
   loadSheetUrl,
   saveEntries,
-  saveLastSync,
   saveSheetUrl
 } from '@/lib/storage';
 import type { ChallengeEntry, ChallengeResult } from '@/types/challenge';
 
-type Tab = 'dashboard' | 'entry' | 'log' | 'calendar' | 'analytics' | 'milestones' | 'share' | 'reel' | 'reel2';
+type Tab = 'dashboard' | 'log' | 'calendar' | 'analytics' | 'milestones' | 'share' | 'reel' | 'reel2';
 type SortMode = 'dayAsc' | 'dayDesc' | 'dateAsc' | 'dateDesc';
-
-const emptyEntry = (nextDay: number): ChallengeEntry => ({
-  id: '',
-  day: nextDay,
-  date: new Date().toISOString().slice(0, 10),
-  pnl: 0,
-  result: 'Win',
-  tradesTaken: 1,
-  instrument: DEFAULT_INSTRUMENT,
-  followedStopLoss: true,
-  revengeTrade: false,
-  followedMaxTrades: true,
-  disciplineScore: 8,
-  notes: '',
-  mistakes: '',
-  improveTomorrow: ''
-});
 
 const tabs: { id: Tab; label: string }[] = [
   { id: 'dashboard', label: 'Dashboard' },
   { id: 'calendar', label: 'Calendar' },
   { id: 'analytics', label: 'Analytics' },
   { id: 'milestones', label: 'Milestones' },
-  { id: 'entry', label: 'Setup' },
   { id: 'log', label: 'Trade Log' },
   { id: 'share', label: 'Instagram' },
   { id: 'reel', label: 'Reel' },
   { id: 'reel2', label: 'Reel 2' }
 ];
-
-function FormInput({
-  label,
-  children
-}: Readonly<{
-  label: string;
-  children: React.ReactNode;
-}>) {
-  return (
-    <label className="grid gap-2 text-sm font-medium text-slate-300">
-      <span>{label}</span>
-      {children}
-    </label>
-  );
-}
 
 function resultTone(result: ChallengeResult) {
   if (result === 'Win') return 'text-profit';
@@ -146,9 +109,6 @@ export default function SixtyDayDashboard() {
   const [sortMode, setSortMode] = useState<SortMode>('dayAsc');
   const [shareEntryId, setShareEntryId] = useState('');
   const [sheetUrl, setSheetUrl] = useState('');
-  const [sheetStatus, setSheetStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
-  const [sheetMessage, setSheetMessage] = useState('');
-  const [lastSync, setLastSync] = useState('');
   const [postStatus, setPostStatus] = useState('');
   const shareRef = useRef<HTMLDivElement>(null);
 
@@ -156,22 +116,15 @@ export default function SixtyDayDashboard() {
     const savedSheetUrl = loadSheetUrl();
     const cached = loadEntries();
     setSheetUrl(savedSheetUrl);
-    setLastSync(loadLastSync());
     setEntries(cached);
     setShareEntryId(sortEntries(cached).at(-1)?.id || '');
     void refreshFromSheet(savedSheetUrl);
   }, []);
 
   async function refreshFromSheet(url = sheetUrl) {
-    if (!url.trim()) {
-      setSheetStatus('error');
-      setSheetMessage('Add a Google Sheet URL first.');
-      return;
-    }
+    if (!url.trim()) return;
 
     try {
-      setSheetStatus('loading');
-      setSheetMessage('Refreshing from Google Sheet...');
       const response = await fetch(`/api/sheet?url=${encodeURIComponent(url.trim())}`);
       const payload = (await response.json()) as { entries?: ChallengeEntry[]; fetchedAt?: string; message?: string };
       if (!response.ok || !payload.entries) {
@@ -182,18 +135,8 @@ export default function SixtyDayDashboard() {
       setEntries(loaded);
       saveEntries(loaded);
       saveSheetUrl(url.trim());
-      if (payload.fetchedAt) {
-        setLastSync(payload.fetchedAt);
-        saveLastSync(payload.fetchedAt);
-      }
       setShareEntryId(sortEntries(loaded).at(-1)?.id || '');
-      setSheetStatus('success');
-      setSheetMessage(`Loaded ${loaded.length} row${loaded.length === 1 ? '' : 's'} from Google Sheet.`);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Could not load sheet.';
-      setSheetStatus('error');
-      setSheetMessage(`${message} Showing the last cached data in this browser if available.`);
-    }
+    } catch { /* Keep displaying the most recent cached rows. */ }
   }
 
   const stats = useMemo(() => buildStats(entries), [entries]);
@@ -327,65 +270,6 @@ export default function SixtyDayDashboard() {
               <MetricCard label="Max Drawdown" value={formatCurrency(stats.maxDrawdown)} tone="loss" />
               <MetricCard label="Rule Breaks" value={stats.ruleBreakCount} tone={stats.ruleBreakCount ? 'warning' : 'profit'} />
             </div>
-          </div>
-        ) : null}
-
-        {activeTab === 'entry' ? (
-          <div className="grid gap-5">
-            <SectionCard title="Google Sheet setup" subtitle={lastSync ? `Last synced: ${new Date(lastSync).toLocaleString()}` : 'Use your sheet as the source of truth. The app caches the last successful sync.'}>
-              <div className="grid gap-5">
-                <div className="grid gap-3">
-                  <FormInput label="Google Sheet URL">
-                    <input className="field" value={sheetUrl} onChange={(event) => setSheetUrl(event.target.value)} />
-                  </FormInput>
-                  <div className="flex flex-wrap gap-3">
-                    <button className="btn-primary" type="button" onClick={() => refreshFromSheet()} disabled={sheetStatus === 'loading'}>
-                      {sheetStatus === 'loading' ? 'Refreshing...' : 'Refresh From Sheet'}
-                    </button>
-                    <a className="btn-muted" href={sheetUrl} target="_blank" rel="noreferrer">
-                      Open Google Sheet
-                    </a>
-                  </div>
-                  {sheetMessage ? (
-                    <p
-                      className={`status-message ${
-                        sheetStatus === 'success'
-                          ? 'border-profit/30 bg-profit/10 text-profit'
-                          : sheetStatus === 'error'
-                            ? 'border-loss/30 bg-loss/10 text-loss'
-                            : 'border-grid bg-slate-900 text-slate-300'
-                      }`}
-                    >
-                      {sheetMessage}
-                    </p>
-                  ) : null}
-                </div>
-                <div className="rounded-lg border border-grid bg-panelSoft p-4 text-base text-slate-300">
-                  <h3 className="text-base font-bold text-white">Recommended sheet headers</h3>
-                  <p className="mt-2 leading-7">
-                    Date, Amount Start, Profit/Loss, Brokerage/tax, Amount End, Profit Day, Live Trade Day,
-                    Discipline with S/L, Comments
-                  </p>
-                  <p className="mt-3 leading-7 text-warning">
-                    Optional for richer posts: Screenshot URL, Result, Trades Taken, Instrument, Mistakes, Improve Tomorrow.
-                  </p>
-                </div>
-              </div>
-            </SectionCard>
-
-            <SectionCard title="Data Export" subtitle="Google Sheets is the source of truth. Exports use the currently synced rows.">
-              <div className="grid gap-4 md:grid-cols-3">
-                <button className="btn-primary" type="button" onClick={() => downloadText('tradewithnine-data.json', JSON.stringify(entries, null, 2), 'application/json')}>
-                  Export JSON
-                </button>
-                <button className="btn-muted" type="button" onClick={() => downloadText('tradewithnine-trade-log.csv', entriesToCsv(sortEntries(entries)), 'text/csv')}>
-                  Export CSV Trade Log
-                </button>
-                <button className="btn-muted" type="button" onClick={() => refreshFromSheet()}>
-                  Refresh Google Sheet
-                </button>
-              </div>
-            </SectionCard>
           </div>
         ) : null}
 
